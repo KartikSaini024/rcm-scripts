@@ -1,7 +1,6 @@
-//daily activity photos button
 // ==UserScript==
 // @name         RentalCarManager - Photos Column (Popup Window)
-// @namespace    http://tampermonkey.net/
+// @namespace    https://github.com/kartiksaini024/rcm-scripts
 // @version      1.0
 // @description  Adds Photos column with buttons that open in a popup window
 // @author       Kartik
