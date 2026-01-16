@@ -6,8 +6,8 @@
 // @description  Adds Photos column with buttons that open in a popup window
 // @author       Kartik
 // @match        https://bookings.rentalcarmanager.com/report/dailyactivity*
-// @updateURL    https://raw.githubusercontent.com/exampleuser/my-scripts/main/daily-activity-photos.js.user.js
-// @downloadURL  https://raw.githubusercontent.com/exampleuser/my-scripts/main/daily-activity-photos.js.user.js
+// @updateURL    https://raw.githubusercontent.com/kartiksaini024/rcm-scripts/main/daily-activity-photos.user.js
+// @downloadURL  https://raw.githubusercontent.com/kartiksaini024/rcm-scripts/main/daily-activity-photos.user.js
 // @grant        none
 // ==/UserScript==
 
