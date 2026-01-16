@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         RentalCarManager - WE Integrate Popup + Copy Email Button
-// @namespace    http://tampermonkey.net/
+// @namespace    https://github.com/kartiksaini024/rcm-scripts
 // @version      1.0
 // @description  Adds a button to open WE Integrate photos popup and a copy button for the email field
 // @author       Kartik
