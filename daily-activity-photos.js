@@ -4,7 +4,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      1.0
 // @description  Adds Photos column with buttons that open in a popup window
-// @author       You
+// @author       Kartik
 // @match        https://bookings.rentalcarmanager.com/report/dailyactivity*
 // @updateURL    https://raw.githubusercontent.com/exampleuser/my-scripts/main/daily-activity-photos.js.user.js
 // @downloadURL  https://raw.githubusercontent.com/exampleuser/my-scripts/main/daily-activity-photos.js.user.js
