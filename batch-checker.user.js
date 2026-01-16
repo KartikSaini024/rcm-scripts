@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Rental Car Batch Checker with Token Extractor + Auto-Refresh
-// @namespace    https://github.com/yourusername/rcm-batch-checker
+// @namespace    https://github.com/kartiksaini024/rcm-scripts
 // @version      1.98
 // @description  Shows latest batch type (Check In / Damage) — 3× parallel + auto token refresh via popup
 // @author       Kartik
