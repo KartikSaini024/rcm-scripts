@@ -5,8 +5,8 @@
 // @description  Adds Photos button to vehicle allocation table using REGO column
 // @author  Kartik
 // @match        https://bookings.rentalcarmanager.com/report/eng_vehicleallocation/param/*
-// @updateURL    https://raw.githubusercontent.com/exampleuser/my-scripts/main/allocation-photos.user.js
-// @downloadURL  https://raw.githubusercontent.com/exampleuser/my-scripts/main/allocation-photos.user.js
+// @updateURL    https://raw.githubusercontent.com/kartiksaini024/rcm-scripts/main/allocation-photos.user.js
+// @downloadURL  https://raw.githubusercontent.com/kartiksaini024/rcm-scripts/main/allocation-photos.user.js
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
