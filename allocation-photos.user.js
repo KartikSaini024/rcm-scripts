@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         RentalCarManager - Vehicle Allocation Photos Button
-// @namespace    https://we-integrate.co.nz/
+// @namespace    https://github.com/kartiksaini024/rcm-scripts
 // @version      1.0
 // @description  Adds Photos button to vehicle allocation table using REGO column
 // @author  Kartik
