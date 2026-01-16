@@ -5,8 +5,8 @@
 // @description  Adds a prominent green 'Open Agreement' button in the Documents section
 // @author       Kartik
 // @match        https://bookings.rentalcarmanager.com/reservations/update/booking/*
-// @updateURL    https://raw.githubusercontent.com/exampleuser/my-scripts/main/open-agreement.user.js
-// @downloadURL  https://raw.githubusercontent.com/exampleuser/my-scripts/main/open-agreement.user.js
+// @updateURL    https://raw.githubusercontent.com/kartiksaini024/rcm-scripts/main/open-agreement.user.js
+// @downloadURL  https://raw.githubusercontent.com/kartiksaini024/rcm-scripts/main/open-agreement.user.js
 // @grant        none
 // @run-at       document-end
 // ==/UserScript==
