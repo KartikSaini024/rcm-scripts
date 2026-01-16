@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         RCM - Open Agreement Button (Green)
-// @namespace    http://tampermonkey.net/
+// @namespace    https://github.com/kartiksaini024/rcm-scripts
 // @version      1.0
 // @description  Adds a prominent green 'Open Agreement' button in the Documents section
 // @author       Kartik
