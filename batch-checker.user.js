@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Rental Car Batch Checker with Token Extractor + Auto-Refresh
 // @namespace    https://github.com/kartiksaini024/rcm-scripts
-// @version      1.98
+// @version      1.99
 // @description  Shows latest batch type (Check In / Damage) — 3× parallel + auto token refresh via popup
 // @author       Kartik
 // @match        https://we-integrate.co.nz/*
@@ -316,22 +316,82 @@
         }
 
         // Collect vehicles
+        // ── COLLECT VEHICLES - DYNAMIC COLUMN DETECTION ──────────────────────────────
+
+        // First, try to find the table header row to detect column names
+        const headerRow = document.querySelector('#Dropoff thead tr');
+        let vehicleColumnIndex = -1;
+
+        if (headerRow) {
+            const headers = Array.from(headerRow.querySelectorAll('th, td'));
+            console.log(`[DEBUG] Found ${headers.length} header cells`);
+
+            // Look for common registration-related column names (case-insensitive)
+            const vehicleKeywords = [
+                'vehicle', 'rego', 'reg', 'registration', 'plate', 'reg no', 'reg#',
+                'licence', 'license', 'number plate', 'vin', 'unit'
+            ];
+
+            headers.forEach((header, idx) => {
+                const text = header.innerText.trim().toLowerCase();
+                if (vehicleKeywords.some(kw => text.includes(kw))) {
+                    vehicleColumnIndex = idx;
+                    console.log(`[DEBUG] Detected VEHICLE column at index ${idx} → "${header.innerText.trim()}"`);
+                }
+            });
+        }
+
+        if (vehicleColumnIndex === -1) {
+            console.warn('[DEBUG] Could not detect Vehicle/Rego column from header → falling back to default column index 14');
+            // Fallback: assume rego is in the last column (common when headers are missing/hidden)
+            vehicleColumnIndex = 14; // will use tds.length - 1 later
+        }
+
+        // Now collect rows
         const rows = Array.from(document.querySelectorAll('#Dropoff tbody tr[role="row"]'))
-            .filter(r => !r.classList.contains('noexport'));
+        .filter(r => !r.classList.contains('noexport'));
+
+        // console.log(`[DEBUG] Total rows with role="row": ${rows.length}`);
 
         const vehicles = [];
-        rows.forEach(row => {
+
+        rows.forEach((row, rowIndex) => {
             const tds = row.querySelectorAll('td');
-            if (tds.length < 16) return;
-            const text = tds[15].innerText.trim();
+
+            // console.log(`[DEBUG] Row ${rowIndex + 1} has ${tds.length} <td> cells`);
+
+            if (tds.length === 0) return;
+
+            // Determine which cell to read
+            let targetCell;
+            if (vehicleColumnIndex >= 0 && vehicleColumnIndex < tds.length) {
+                targetCell = tds[vehicleColumnIndex];
+            } else {
+                // Fallback to last cell if header detection failed
+                targetCell = tds[tds.length - 1];
+                // console.log(`[DEBUG] Row ${rowIndex + 1} using fallback: last column`);
+            }
+
+            const text = targetCell?.innerText?.trim() || '';
+
+            // console.log(`[DEBUG] Row ${rowIndex + 1} - Target column content: "${text}"`);
+
             const regoMatch = text.match(/^[A-Z0-9]{5,8}/i);
-            if (regoMatch) vehicles.push({ rego: regoMatch[0].toUpperCase(), row });
+
+            if (regoMatch) {
+                const rego = regoMatch[0].toUpperCase();
+                // console.log(`[DEBUG] Row ${rowIndex + 1} → VALID REGO: ${rego}`);
+                vehicles.push({ rego, row });
+            } else {
+                console.log(`[DEBUG] Row ${rowIndex + 1} → No valid rego found`);
+            }
         });
 
         console.log(`[BatchCheck] Found ${vehicles.length} vehicles with valid rego`);
 
         if (vehicles.length === 0) {
-            showToast('No valid registration plates found in table', 6000);
+            console.warn('[BatchCheck] No vehicles with valid registration plates were detected');
+            showToast('No valid registration plates found in table (column detection may have failed)', 8000);
             resetButton(progressContainer);
             return;
         }
