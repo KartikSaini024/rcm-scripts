@@ -5,8 +5,8 @@
 // @description  Adds a button to open WE Integrate photos popup and a copy button for the email field
 // @author       Kartik
 // @match        https://bookings.rentalcarmanager.com/s_SignatureSelectBooking.aspx*
-// @updateURL    https://raw.githubusercontent.com/exampleuser/my-scripts/main/email-button.user.js
-// @downloadURL  https://raw.githubusercontent.com/exampleuser/my-scripts/main/email-button.user.js
+// @updateURL    https://raw.githubusercontent.com/kartiksaini024/rcm-scripts/main/email-button.user.js
+// @downloadURL  https://raw.githubusercontent.com/kartiksaini024/rcm-scripts/main/email-button.user.js
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
