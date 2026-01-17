@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Rental Car Batch Checker with Token Extractor + Auto-Refresh
 // @namespace    https://github.com/kartiksaini024/rcm-scripts
-// @version      1.99
+// @version      2.0
 // @description  Shows latest batch type (Check In / Damage) — 3× parallel + auto token refresh via popup
 // @author       Kartik
 // @match        https://we-integrate.co.nz/*
@@ -12,7 +12,6 @@
 // @grant        GM_addStyle
 // @updateURL    https://raw.githubusercontent.com/kartiksaini024/rcm-scripts/main/batch-checker.user.js
 // @downloadURL  https://raw.githubusercontent.com/kartiksaini024/rcm-scripts/main/batch-checker.user.js
-
 // ==/UserScript==
 
 (function () {
@@ -34,26 +33,95 @@
             gap: 16px;
             flex-wrap: wrap;
         }
-        .rcm-control-item {
-            padding: 10px 28px;
-            font-size: 15px;
-            font-weight: 600;
-            border-radius: 50px;
-            text-align: center;
-            min-width: 170px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.12);
-            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+
+        /* 3D light-blue compact button - fixed disabled state */
+        .rcm-3d-batch-btn {
+            position: relative;
+            display: inline-block;
             cursor: pointer;
-            border: none;
+            outline: none;
+            border: 0;
+            vertical-align: middle;
+            text-decoration: none;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            padding: 0.65em 1.4em;
+            color: #1e3a5f;
+            background: #f0f7ff;
+            border: 1.5px solid #60a5fa;
+            border-radius: 0.5em;
+            transform-style: preserve-3d;
+            transition:
+                transform 140ms cubic-bezier(0, 0, 0.58, 1),
+                background 140ms cubic-bezier(0, 0, 0.58, 1),
+                opacity 140ms ease;
+            min-width: 220px;
+            text-align: center;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+            z-index: 1;
         }
-        #rcm-check-button {
-            background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%);
-            color: white;
+
+        .rcm-3d-batch-btn::before {
+            position: absolute;
+            content: '';
+            inset: 0;
+            background: #bfdbfe;
+            border-radius: inherit;
+            box-shadow:
+                0 0 0 1.5px #60a5fa,
+                0 0.4em 0 0 #dbeafe;
+            transform: translate3d(0, 0.4em, -1em);
+            transition:
+                transform 140ms cubic-bezier(0, 0, 0.58, 1),
+                box-shadow 140ms cubic-bezier(0, 0, 0.58, 1);
+            z-index: -1;
         }
-        #rcm-check-button:hover:not(:disabled) {
-            transform: translateY(-3px) scale(1.03);
-            box-shadow: 0 12px 28px rgba(59, 130, 246, 0.4);
+
+        .rcm-3d-batch-btn:hover:not(:disabled) {
+            background: #e0f2fe;
+            transform: translate(0, 0.15em);
         }
+
+        .rcm-3d-batch-btn:hover:not(:disabled)::before {
+            box-shadow:
+                0 0 0 1.5px #60a5fa,
+                0 0.25em 0 0 #dbeafe;
+            transform: translate3d(0, 0.25em, -1em);
+        }
+
+        .rcm-3d-batch-btn:active:not(:disabled) {
+            background: #e0f2fe;
+            transform: translate(0, 0.35em);
+        }
+
+        .rcm-3d-batch-btn:active:not(:disabled)::before {
+            box-shadow:
+                0 0 0 1.5px #60a5fa,
+                0 0 #dbeafe;
+            transform: translate3d(0, 0, -1em);
+        }
+
+        /* Disabled / Scanning state - clean & readable */
+        .rcm-3d-batch-btn:disabled,
+        .rcm-3d-batch-btn:disabled::before {
+            opacity: 0.75;
+            cursor: not-allowed;
+            transform: none !important;
+            box-shadow: none !important;
+            transition: opacity 0.2s ease;
+        }
+
+        .rcm-3d-batch-btn:disabled::before {
+            transform: translate3d(0, 0.2em, -1em) !important;
+            box-shadow:
+                0 0 0 1.5px #60a5fa,
+                0 0.2em 0 0 #dbeafe !important;
+        }
+
+        /* Rest of your original styles remain unchanged */
         #rcm-help-button {
             width: 42px;
             height: 42px;
@@ -157,9 +225,9 @@
             text-shadow: 0 1px 3px rgba(255,255,255,0.9);
             pointer-events: none;
         }
-        .batch-checkin    { background-color: #c8e6c9 !important; }
-        .batch-damage     { background-color: #fed7aa !important; }
-        .batch-error      { background-color: #fecaca !important; }
+        .batch-checkin { background-color: #c8e6c9 !important; }
+        .batch-damage { background-color: #fed7aa !important; }
+        .batch-error { background-color: #fecaca !important; }
         #rcm-toast {
             position: fixed;
             bottom: 40px;
@@ -187,7 +255,6 @@
         function getCookie(name) {
             return document.cookie.split('; ').find(row => row.startsWith(name + '='))?.split('=')[1] || null;
         }
-
         function tryGetToken() {
             const token = getCookie('XSRF-TOKEN');
             if (token) {
@@ -198,7 +265,6 @@
                 setTimeout(tryGetToken, 1200);
             }
         }
-
         tryGetToken();
         return;
     }
@@ -236,7 +302,7 @@
 
         const checkButton = document.createElement('button');
         checkButton.id = 'rcm-check-button';
-        checkButton.className = 'rcm-control-item';
+        checkButton.className = 'rcm-3d-batch-btn';
         checkButton.textContent = 'Check Vehicle Batches';
 
         const helpWrapper = document.createElement('div');
@@ -274,7 +340,6 @@
         checkButton.onclick = () => handleCheckClick(checkButton, panel);
     }
 
-    // ── Main scan logic ───────────────────────────────────────────────────────
     let isRefreshingToken = false;
 
     async function handleCheckClick(button, controlPanel) {
@@ -282,26 +347,20 @@
         console.log('[BatchCheck] Starting scan...');
         button.disabled = true;
         button.textContent = 'Scanning...';
-        button.style.opacity = '0.7';
-        button.style.cursor = 'not-allowed';
 
         const progressContainer = document.createElement('div');
         progressContainer.id = 'rcm-progress-container';
         progressContainer.classList.add('visible');
-
         const progressBar = document.createElement('div');
         progressBar.id = 'rcm-progress-bar';
         progressBar.style.width = '0%';
-
         const progressText = document.createElement('div');
         progressText.id = 'rcm-progress-text';
         progressText.textContent = '0%';
-
         progressContainer.appendChild(progressBar);
         progressContainer.appendChild(progressText);
         controlPanel.appendChild(progressContainer);
 
-        // Token check
         let xsrfToken = GM_getValue('xsrf_token', null);
         if (!xsrfToken) {
             console.log('[TOKEN] No token found - initiating refresh...');
@@ -315,104 +374,63 @@
             xsrfToken = GM_getValue('xsrf_token', null);
         }
 
-        // Collect vehicles
         // ── COLLECT VEHICLES - DYNAMIC COLUMN DETECTION ──────────────────────────────
-
-        // First, try to find the table header row to detect column names
         const headerRow = document.querySelector('#Dropoff thead tr');
         let vehicleColumnIndex = -1;
-
         if (headerRow) {
             const headers = Array.from(headerRow.querySelectorAll('th, td'));
-            console.log(`[DEBUG] Found ${headers.length} header cells`);
-
-            // Look for common registration-related column names (case-insensitive)
             const vehicleKeywords = [
                 'vehicle', 'rego', 'reg', 'registration', 'plate', 'reg no', 'reg#',
                 'licence', 'license', 'number plate', 'vin', 'unit'
             ];
-
             headers.forEach((header, idx) => {
                 const text = header.innerText.trim().toLowerCase();
                 if (vehicleKeywords.some(kw => text.includes(kw))) {
                     vehicleColumnIndex = idx;
-                    console.log(`[DEBUG] Detected VEHICLE column at index ${idx} → "${header.innerText.trim()}"`);
                 }
             });
         }
-
         if (vehicleColumnIndex === -1) {
-            console.warn('[DEBUG] Could not detect Vehicle/Rego column from header → falling back to default column index 14');
-            // Fallback: assume rego is in the last column (common when headers are missing/hidden)
-            vehicleColumnIndex = 14; // will use tds.length - 1 later
+            vehicleColumnIndex = 14;
         }
 
-        // Now collect rows
         const rows = Array.from(document.querySelectorAll('#Dropoff tbody tr[role="row"]'))
-        .filter(r => !r.classList.contains('noexport'));
-
-        // console.log(`[DEBUG] Total rows with role="row": ${rows.length}`);
+            .filter(r => !r.classList.contains('noexport'));
 
         const vehicles = [];
-
-        rows.forEach((row, rowIndex) => {
+        rows.forEach((row) => {
             const tds = row.querySelectorAll('td');
-
-            // console.log(`[DEBUG] Row ${rowIndex + 1} has ${tds.length} <td> cells`);
-
             if (tds.length === 0) return;
 
-            // Determine which cell to read
-            let targetCell;
-            if (vehicleColumnIndex >= 0 && vehicleColumnIndex < tds.length) {
-                targetCell = tds[vehicleColumnIndex];
-            } else {
-                // Fallback to last cell if header detection failed
-                targetCell = tds[tds.length - 1];
-                // console.log(`[DEBUG] Row ${rowIndex + 1} using fallback: last column`);
-            }
+            let targetCell = (vehicleColumnIndex >= 0 && vehicleColumnIndex < tds.length)
+                ? tds[vehicleColumnIndex]
+                : tds[tds.length - 1];
 
             const text = targetCell?.innerText?.trim() || '';
-
-            // console.log(`[DEBUG] Row ${rowIndex + 1} - Target column content: "${text}"`);
-
             const regoMatch = text.match(/^[A-Z0-9]{5,8}/i);
-
             if (regoMatch) {
-                const rego = regoMatch[0].toUpperCase();
-                // console.log(`[DEBUG] Row ${rowIndex + 1} → VALID REGO: ${rego}`);
-                vehicles.push({ rego, row });
-            } else {
-                console.log(`[DEBUG] Row ${rowIndex + 1} → No valid rego found`);
+                vehicles.push({ rego: regoMatch[0].toUpperCase(), row });
             }
         });
 
-        console.log(`[BatchCheck] Found ${vehicles.length} vehicles with valid rego`);
-
         if (vehicles.length === 0) {
-            console.warn('[BatchCheck] No vehicles with valid registration plates were detected');
-            showToast('No valid registration plates found in table (column detection may have failed)', 8000);
+            showToast('No valid registration plates found in table', 8000);
             resetButton(progressContainer);
             return;
         }
 
-        // Counters
         let green = 0, orange = 0, other = 0, errors = 0, done = 0;
         const CONCURRENCY = 3;
         let failedVehicles = [];
         let requestCounter = 0;
 
-        // Process single vehicle
         async function processOne(vehicle, attempt = 1) {
             const { rego, row } = vehicle;
             const reqId = ++requestCounter;
 
-            console.log(`[REQ ${reqId}] attempt #${attempt} | ${rego} | START ${getTimeStamp()}`);
-
             try {
                 const token = GM_getValue('xsrf_token');
                 const result = await getLatestBatchType(rego, token);
-
                 row.classList.remove('batch-checkin', 'batch-damage', 'batch-error');
 
                 if (result.type === 'Check In') {
@@ -424,34 +442,25 @@
                 } else {
                     other++;
                 }
-
-                console.log(`[REQ ${reqId}] SUCCESS - ${rego} → ${result.type}`);
             } catch (e) {
                 const isAuthError = /400|401|403|token|forbidden/i.test(e.message);
-
                 if (isAuthError && attempt === 1 && !isRefreshingToken) {
-                    console.warn(`[REQ ${reqId}] AUTH ERROR - ${rego} → queued for retry`);
                     failedVehicles.push(vehicle);
                 } else {
                     row.classList.add('batch-error');
                     errors++;
-                    console.error(`[REQ ${reqId}] FAILED - ${rego} → ${e.message}`);
                 }
             } finally {
                 done++;
-                console.log(`[REQ ${reqId}] END ${rego} ${getTimeStamp()}`);
                 const pct = Math.round((done / vehicles.length) * 100);
                 progressBar.style.width = pct + '%';
                 progressText.textContent = `${pct}% (${done}/${vehicles.length})`;
             }
         }
 
-        // First pass - concurrent processing
+        // First pass
         let queue = vehicles.slice();
         const active = new Set();
-
-        console.log(`[BatchCheck] Starting main scan - max concurrency: ${CONCURRENCY}`);
-
         while (queue.length > 0 || active.size > 0) {
             while (active.size < CONCURRENCY && queue.length > 0) {
                 const vehicle = queue.shift();
@@ -461,21 +470,16 @@
             if (active.size > 0) await Promise.race(active);
         }
 
-        // Retry failed due to auth
+        // Retry failed
         if (failedVehicles.length > 0 && !isRefreshingToken) {
-            console.log(`[BatchCheck] ${failedVehicles.length} vehicles need retry after token refresh`);
-            showToast(`Auth error on ${failedVehicles.length} vehicle(s) → opening login popup...`, 12000);
-
+            showToast(`Auth error on ${failedVehicles.length} vehicle(s) → refreshing token...`, 12000);
             isRefreshingToken = true;
             const refreshed = await refreshTokenAutomatically();
             isRefreshingToken = false;
-
             if (refreshed) {
-                showToast('Token updated → retrying failed vehicles...', 6000);
                 done = vehicles.length - failedVehicles.length;
                 queue = failedVehicles.slice();
                 active.clear();
-
                 while (queue.length > 0 || active.size > 0) {
                     while (active.size < CONCURRENCY && queue.length > 0) {
                         const vehicle = queue.shift();
@@ -484,84 +488,47 @@
                     }
                     if (active.size > 0) await Promise.race(active);
                 }
-            } else {
-                showToast('No new token found after popup closed. Please log in properly.', 14000);
             }
         }
 
-        // Final result
         const durationSeconds = Math.round((Date.now() - startTime) / 1000);
-        const totalSuccess = green + orange + other;
-
-        const summary = `
-[BatchCheck] SCAN SUMMARY
-──────────────────────────────
-Vehicles processed: ${vehicles.length}
-   ✓ Check-In: ${green}
-   ⚠ Damage:   ${orange}
-   • Other:     ${other}
-   ✗ Errors:    ${errors}
-Duration: ${durationSeconds} seconds
-──────────────────────────────`;
-
-        console.log(summary);
-
-        if (totalSuccess === 0 && errors > 0) {
-            showToast('All requests failed – most likely persistent token issue.', 14000);
-        } else {
-            showToast(
-                `Scan finished:\n✓ Check-In: ${green}   ⚠ Damage: ${orange}\n• Other: ${other}   ✗ Errors: ${errors}`,
-                14000
-            );
-        }
+        showToast(
+            `Scan finished:\n✓ Check-In: ${green} ⚠ Damage: ${orange}\n• Other: ${other} ✗ Errors: ${errors}\n(${durationSeconds}s)`,
+            14000
+        );
 
         setTimeout(() => resetButton(progressContainer), 2200);
 
         function resetButton(progressContainer) {
             button.disabled = false;
             button.textContent = 'Check Vehicle Batches';
-            button.style.opacity = '1';
-            button.style.cursor = 'pointer';
             progressContainer?.remove();
-            console.log('[BatchCheck] Ready for next run');
         }
     }
 
-    // ── Token refresh via popup ──────────────────────────────────────────────
     function refreshTokenAutomatically() {
         return new Promise((resolve) => {
-            console.log('[TOKEN REFRESH] Opening login popup...');
-            showToast('If asked, please log in → then CLOSE this window to continue', 18000);
-
             const popup = window.open(
                 'https://we-integrate.co.nz/pwd/login',
                 'tokenRefreshPopup',
                 'width=820,height=640,left=180,top=80,menubar=no,toolbar=no,location=no'
             );
 
-            if (!popup || popup.closed || typeof popup.closed === 'undefined') {
-                console.warn('[TOKEN REFRESH] Popup blocked or failed to open');
-                showToast('Popup blocked! Please allow popups for this site.', 12000);
+            if (!popup) {
+                showToast('Popup blocked! Please allow popups.', 12000);
                 resolve(false);
                 return;
             }
 
             let checks = 0;
             const maxChecks = 45;
-
             const interval = setInterval(() => {
                 checks++;
                 if (popup.closed) {
                     clearInterval(interval);
                     setTimeout(() => {
                         const newToken = GM_getValue('xsrf_token', '');
-                        if (newToken && newToken.length > 30) {
-                            console.log('[TOKEN REFRESH] Success - valid token detected');
-                            resolve(true);
-                        } else {
-                            console.warn('[TOKEN REFRESH] Popup closed but no valid token found');
-                            resolve(false);
-                        }
+                        resolve(newToken && newToken.length > 30);
                     }, 1200);
                 }
                 if (checks >= maxChecks) {
@@ -573,7 +540,6 @@ Duration: ${durationSeconds} seconds
         });
     }
 
-    // ── API request ───────────────────────────────────────────────────────────
     function getLatestBatchType(rego, xsrfToken) {
         return new Promise((resolve, reject) => {
             const payload = {
@@ -605,7 +571,7 @@ Duration: ${durationSeconds} seconds
                 timeout: 14000,
                 onload: r => {
                     if ([400, 401, 403].includes(r.status)) {
-                        reject(new Error(`HTTP ${r.status} - likely invalid/expired token`));
+                        reject(new Error(`HTTP ${r.status}`));
                         return;
                     }
                     if (r.status !== 200) {
@@ -615,27 +581,22 @@ Duration: ${durationSeconds} seconds
                     try {
                         const data = JSON.parse(r.responseText);
                         const batches = data.ests || [];
-                        if (!batches.length) {
-                            reject(new Error('No batches found'));
-                            return;
-                        }
+                        if (!batches.length) return reject(new Error('No batches'));
                         const latest = batches[0];
                         const typeMeta = latest.metadata?.find(m => m.name === 'batch_type');
-                        if (!typeMeta) {
-                            reject(new Error('No batch_type in metadata'));
-                            return;
-                        }
+                        if (!typeMeta) return reject(new Error('No batch_type'));
                         resolve({ type: typeMeta.value.trim() });
                     } catch (e) {
-                        reject(new Error('JSON parse error'));
+                        reject(new Error('JSON error'));
                     }
                 },
-                onerror:   () => reject(new Error('Network error')),
-                ontimeout: () => reject(new Error('Request timeout'))
+                onerror: () => reject(new Error('Network error')),
+                ontimeout: () => reject(new Error('Timeout'))
             });
         });
     }
 
     // ── Initialize ────────────────────────────────────────────────────────────
     addCheckButton();
+
 })();
