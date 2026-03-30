@@ -2,6 +2,7 @@
 // @name         RCM Notes Panel
 // @namespace    https://github.com/kartiksaini024/rcm-scripts
 // @version      1.0
+// @author       Kartik
 // @description  Clipboard templates with floating chat-style popup
 // @match        https://bookings.rentalcarmanager.com/reservations/update/booking/*
 // @updateURL    https://raw.githubusercontent.com/kartiksaini024/rcm-scripts/main/notes-panel.user.js
