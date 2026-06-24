@@ -8,6 +8,7 @@
 // @updateURL    https://raw.githubusercontent.com/kartiksaini024/rcm-scripts/main/pickup-total.user.js
 // @downloadURL  https://raw.githubusercontent.com/kartiksaini024/rcm-scripts/main/pickup-total.user.js
 // @grant        none
+// ==UserScript==
 
 (function () {
   'use strict';
