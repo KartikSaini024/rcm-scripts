@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         Simba Car Hire — Pickup Category Totals
 // @namespace    https://github.com/kartiksaini024/rcm-scripts
-// @version      1.3.0
+// @version      2.0.0
 // @author       Kartik
-// @description  Inline summary bar with pickup counts by vehicle category
+// @description  Animated summary bar with per-category hover tooltips showing pickup times and allocation status
 // @match        https://bookings.rentalcarmanager.com/report/dailyactivity*
 // @updateURL    https://raw.githubusercontent.com/kartiksaini024/rcm-scripts/main/pickup-total.user.js
 // @downloadURL  https://raw.githubusercontent.com/kartiksaini024/rcm-scripts/main/pickup-total.user.js
 // @grant        none
-// ==UserScript==
+// ==/UserScript==
 
 (function () {
   'use strict';
