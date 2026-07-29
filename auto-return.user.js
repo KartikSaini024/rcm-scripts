@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Simba Return Manager (Userscript)
 // @namespace    simba-return-manager
-// @version      1.1.0
-// @description  Auto-detects returned vehicles via We-Integrate and marks them as returned in RCM. Auto-return is OFF by default for testing — use the floating toggle or the per-row "Check In" button.
+// @version      1.3.0
+// @description  Auto-detects returned vehicles via We-Integrate and marks them as returned in RCM. Auto-return is OFF by default for testing — use the floating toggle or the per-row "Check In" button. Only vehicles whose Dropoff branch is enabled (Sydney only, by default) are scanned/shown.
 // @match        https://bookings.rentalcarmanager.com/report/dailyactivity*
 // @match        https://bookings.rentalcarmanager.com/reservations/update/booking/*
 // @connect      we-integrate.co.nz
@@ -104,6 +104,53 @@
  * re-scan loop, the button states/styles, the field-filling and fee-ticking
  * logic and its timings — is carried over unchanged.
  * ─────────────────────────────────────────────────────────────────────────
+ * v1.2.0 FIXES / ADDITIONS
+ * ─────────────────────────────────────────────────────────────────────────
+ *  - Fixed: table detection required `rows.length > 5` to consider a
+ *    <table class="lstReport"> a candidate "dropoff" table. With few rows
+ *    (e.g. only 1 record → header + 1 row = 2 total rows), that condition
+ *    was never true, so the table was invisible to the scanner. This is
+ *    why (a) a single-record list never scanned at all, and (b) on a
+ *    borderline-sized list the very first pass could come up with zero
+ *    rows and silently no-op, only "starting" to work once a couple more
+ *    rows appeared on the following poll. The threshold is now `> 1`
+ *    (i.e. header + at least one data row), and table identification
+ *    still primarily relies on the presence of a "Photos" column header,
+ *    so this doesn't loosen matching against unrelated tables.
+ *  - Added: the status widget now shows the batch type (or the reason a
+ *    vehicle isn't ready) for ~1s per vehicle while scanning, so it's
+ *    visible that each row is actually being checked one at a time.
+ *  - Added: the Auto-Return panel is now collapsed by default and toggles
+ *    open/closed when you click the status widget in the corner.
+ * ─────────────────────────────────────────────────────────────────────────
+ * v1.3.0 FIXES / ADDITIONS (this revision)
+ * ─────────────────────────────────────────────────────────────────────────
+ *  - Fixed: there was previously no real concept of "which branch is this
+ *    vehicle dropping off at" — the only location-flavoured logic was
+ *    inside extractRegoFromRow(), and that only used location codes (SYD,
+ *    MEL, etc.) as a landmark to help pull the rego plate out of the
+ *    "Vehicle" cell. It never looked at the report's actual "Dropoff"
+ *    column, so there was no way to only act on (say) Sydney drop-offs —
+ *    every branch's rows were scanned and shown together.
+ *  - Added: rows are now matched against a "Dropoff" column (matched
+ *    loosely — "Dropoff", "Drop Off", "Drop-off", "Dropoff Location" all
+ *    count) and a branch/location code is detected inside that cell's
+ *    full text using a whole-word search, not an exact-match on the whole
+ *    cell. That means multi-line cells like:
+ *        SYD
+ *        SYD Office: 251 Coward Street, Mascot, NSW 2020
+ *        Please return your rental vehicle to: 251 Coward Street, Mascot, NSW 2020
+ *    are correctly recognised as a Sydney drop-off (the word "SYD" is
+ *    present in the cell), rather than requiring the whole cell to equal
+ *    "SYD". Matching is whole-word (via regex word boundaries) so "SYD"
+ *    won't accidentally match inside an unrelated longer word.
+ *  - Added: a "Locations" section in the floating menu lets you tick which
+ *    branches' drop-offs should be scanned/shown at all (Sydney, Melbourne,
+ *    Brisbane, Perth, Adelaide, Canberra, Hobart, Darwin, Cairns). Only
+ *    Sydney is ticked by default — rows whose Dropoff branch isn't ticked
+ *    (or whose branch couldn't be determined at all) are skipped entirely,
+ *    before any We-Integrate lookups are made for them.
+ * ─────────────────────────────────────────────────────────────────────────
  */
 
 (function () {
@@ -190,10 +237,10 @@
     const needsRefuel = notes ? fuelKeywords.test(notes) : false;
 
     if (!batchType) return { found: false, reason: 'Could not read batch type' };
-    if (batchType.toLowerCase() !== 'check in') return { found: false, reason: 'Latest batch is "' + batchType + '", not Check In' };
-    if (dateAdded !== todayStr) return { found: false, reason: 'Check In found but date is ' + dateAdded + ', not today' };
-    if (!kms || kms === '0') return { found: true, checkInToday: true, noKms: true, reason: 'No KMs input for this batch', kms: null, needsRefuel };
-    return { found: true, checkInToday: true, noKms: false, kms, needsRefuel, notes };
+    if (batchType.toLowerCase() !== 'check in') return { found: false, reason: 'Latest batch is "' + batchType + '", not Check In', batchType };
+    if (dateAdded !== todayStr) return { found: false, reason: 'Check In found but date is ' + dateAdded + ', not today', batchType };
+    if (!kms || kms === '0') return { found: true, checkInToday: true, noKms: true, reason: 'No KMs input for this batch', kms: null, needsRefuel, batchType };
+    return { found: true, checkInToday: true, noKms: false, kms, needsRefuel, notes, batchType };
   }
 
   // ===========================================================================
@@ -544,6 +591,149 @@
       GM_setValue(AUTO_RETURN_KEY, !!val);
     }
 
+    // ── Branch/location filtering (based on the report's "Dropoff" column) ──
+    //
+    // Recognised branch codes, with a friendly label for the menu. This is
+    // deliberately the same set of city codes already used elsewhere in this
+    // file (see extractRegoFromRow's locationPattern) so a code recognised in
+    // one place is recognised everywhere.
+    const LOCATIONS = [
+      { code: 'SYD', label: 'Sydney' },
+      { code: 'MEL', label: 'Melbourne' },
+      { code: 'BNE', label: 'Brisbane' },
+      { code: 'PER', label: 'Perth' },
+      { code: 'ADL', label: 'Adelaide' },
+      { code: 'CBR', label: 'Canberra' },
+      { code: 'HBA', label: 'Hobart' },
+      { code: 'DAR', label: 'Darwin' },
+      { code: 'CNS', label: 'Cairns' },
+    ];
+
+    const ENABLED_LOCATIONS_KEY = 'simba_enabled_locations';
+
+    // Default: Sydney only.
+    function getEnabledLocations() {
+      const stored = GM_getValue(ENABLED_LOCATIONS_KEY, null);
+      if (Array.isArray(stored) && stored.length) return stored;
+      return ['SYD'];
+    }
+    function setEnabledLocations(codes) {
+      GM_setValue(ENABLED_LOCATIONS_KEY, codes);
+    }
+    function isLocationEnabled(code) {
+      if (!code) return false;
+      return getEnabledLocations().indexOf(code) !== -1;
+    }
+
+    // Whole-word search for a branch code anywhere inside a cell's text —
+    // NOT an exact-match on the whole cell. This is what makes a multi-line
+    // Dropoff cell such as:
+    //   SYD
+    //   SYD Office: 251 Coward Street, Mascot, NSW 2020
+    //   Please return your rental vehicle to: 251 Coward Street, Mascot, NSW 2020
+    // correctly count as Sydney: the word "SYD" appears in there, even
+    // though the cell as a whole is much longer than just "SYD". Word
+    // boundaries keep "MEL" from matching inside an unrelated longer word.
+    // Turns a cell's innerHTML into plain text where every tag becomes a
+    // space. This matters because `.textContent` simply drops tags like
+    // <br> with NOTHING in their place — so a cell built as
+    // "SYD<br>SYD Office: 251 Coward Street..." becomes the single glued
+    // string "SYDSYD Office: 251 Coward Street...", and a whole-word match
+    // for "SYD" then fails (there's no boundary between the two runs of
+    // "SYD"). Replacing every tag with a space instead keeps "SYD" as its
+    // own word no matter how the cell's lines are separated in the markup.
+    function htmlToSpacedText(html) {
+      if (!html) return '';
+      return html
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    // Full text of a cell (or row) for location matching: HTML-tag-safe
+    // (see htmlToSpacedText above) plus any `title` attribute text found on
+    // the element itself or its descendants, in case a report shows the
+    // branch code as visible text but the full office/return address only
+    // as a hover tooltip rather than as literal cell content.
+    function getCellFullText(el) {
+      if (!el) return '';
+      let text = htmlToSpacedText(el.innerHTML || '');
+      const titledEls = [el].concat(el.querySelectorAll ? Array.from(el.querySelectorAll('[title]')) : []);
+      for (const t of titledEls) {
+        const title = t.getAttribute && t.getAttribute('title');
+        if (title) text += ' ' + title;
+      }
+      return text;
+    }
+
+    function detectLocationCode(text) {
+      if (!text) return null;
+      const normalized = text.replace(/\s+/g, ' ');
+
+      // Find the *earliest* (leftmost) occurrence of any known location
+      // keyword in the text, and use that one — not simply the first code
+      // in the LOCATIONS array that happens to match anywhere. This matters
+      // because a Dropoff cell can legitimately mention more than one code
+      // (e.g. a note referencing another branch further down the text); the
+      // one that actually comes first in the cell is what should decide the
+      // record's location, regardless of the order LOCATIONS is defined in.
+      let bestCode = null;
+      let bestIndex = Infinity;
+      for (const loc of LOCATIONS) {
+        const re = new RegExp('\\b' + loc.code + '\\b', 'i');
+        const m = re.exec(normalized);
+        if (m && m.index < bestIndex) {
+          bestIndex = m.index;
+          bestCode = loc.code;
+        }
+      }
+      return bestCode;
+    }
+
+    function normalizeHeaderText(s) {
+      return (s || '').toLowerCase().replace(/[\s\-]/g, '');
+    }
+
+    // Minimum total <tr> count (including the header row) for a
+    // "table.lstReport" to be considered as a candidate dropoff/activity
+    // table. This used to be `> 5`, which meant a list with only 1 (or a
+    // handful of) data rows never had a table.rows.length big enough to
+    // pass, so it was never detected at all — the scanner silently found
+    // nothing to do. Identification is primarily driven by the presence of
+    // a "Photos" column header anyway, so this just needs to rule out
+    // genuinely empty/header-only tables.
+    const MIN_TABLE_ROWS = 1;
+
+    function findDropoffTable() {
+      return Array.from(document.querySelectorAll('table.lstReport'))
+        .find(t => t.rows.length > MIN_TABLE_ROWS && Array.from(t.querySelectorAll('th')).some(th => th.textContent.trim() === 'Photos'));
+    }
+
+    // Generic "find the column index whose header matches" helper, used for
+    // both the "Vehicle" column (rego extraction) and the "Dropoff" column
+    // (branch/location extraction).
+    function findColumnIndex(headerMatcher) {
+      const tbl = findDropoffTable();
+      if (!tbl) return -1;
+      const ths = Array.from(tbl.querySelectorAll('th'));
+      return ths.findIndex(th => headerMatcher(th.textContent.trim()));
+    }
+
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // Declared up front (not down near injectFloatingMenu's definition)
+    // because injectFloatingMenu() is invoked before that point in the
+    // function — referencing a `let` before its own declaration line has
+    // run throws a ReferenceError and would silently kill the whole
+    // script, which is why nothing was rendering at all.
+    let menuEl = null;
+
     const STYLE = `
       .simba-btn {
         display: inline-flex;
@@ -641,6 +831,8 @@
         backdrop-filter: blur(4px);
         opacity: 0.85;
         transition: opacity 0.3s;
+        cursor: pointer;
+        user-select: none;
       }
       .simba-status-bar:hover { opacity: 1; }
       .simba-status-bar.checking { border-left-color: #ff9800; }
@@ -662,6 +854,15 @@
         box-shadow: 0 2px 10px rgba(0,0,0,0.3);
         width: 220px;
         border-left: 3px solid #1565c0;
+        transform-origin: bottom right;
+        transition: opacity 0.15s ease, transform 0.15s ease;
+        max-height: 70vh;
+        overflow-y: auto;
+      }
+      .simba-menu.simba-menu-collapsed {
+        opacity: 0;
+        transform: scale(0.95) translateY(6px);
+        pointer-events: none;
       }
       .simba-menu-title { font-weight: 600; margin-bottom: 8px; }
       .simba-menu-row {
@@ -683,6 +884,12 @@
       .simba-switch input:checked + .simba-slider { background: #2e7d32; }
       .simba-switch input:checked + .simba-slider:before { transform: translateX(16px); }
       .simba-menu-hint { margin-top: 6px; font-size: 10px; color: #aaa; line-height: 1.4; }
+      .simba-menu-divider { border-top: 1px solid rgba(255,255,255,0.15); margin: 10px 0 8px; }
+      .simba-menu-subtitle { font-weight: 600; font-size: 11px; margin-bottom: 6px; color: #cfd8ff; }
+      .simba-menu-locations { display: flex; flex-direction: column; gap: 5px; }
+      .simba-menu-location-row { padding: 1px 0; }
+      .simba-loc-code { color: #9aa; font-size: 10px; }
+      .simba-loc-checkbox { width: 14px; height: 14px; accent-color: #1565c0; cursor: pointer; }
     `;
 
     injectStyles(STYLE);
@@ -690,7 +897,6 @@
 
     // Re-scan continuously — as soon as one scan finishes, wait 5 seconds then start next
     const continuousScan = () => {
-      window.__simbaReturnManagerLoaded = false;
       processDropoffList().then(() => {
         showStatusBar('Scan complete. Restarting in 5s...', 'done');
         setTimeout(continuousScan, 5000);
@@ -706,8 +912,7 @@
       let lastCount = 0;
       let stableChecks = 0;
       const poll = () => {
-        const tbl = Array.from(document.querySelectorAll('table.lstReport'))
-          .find(t => t.rows.length > 5 && Array.from(t.querySelectorAll('th')).some(th => th.textContent.trim() === 'Photos'));
+        const tbl = findDropoffTable();
         const count = tbl ? tbl.rows.length : 0;
         if (count > 0 && count === lastCount) {
           stableChecks++;
@@ -730,12 +935,18 @@
     }
 
     async function processDropoffList() {
-      const rows = getDropoffRows();
+      const enabledLocations = getEnabledLocations();
+      const allRows = getDropoffRows();
+      const rows = allRows.filter(r => isLocationEnabled(r.location));
+      const skippedCount = allRows.length - rows.length;
+
       const regoList = rows.map(r => r.rego).join(', ');
-      console.log('[Simba] Scanning ' + rows.length + ' vehicles: ' + regoList);
-      showStatusBar('Checking ' + rows.length + ' vehicle(s) against We-Integrate...', 'checking');
+      const locLabel = enabledLocations.length ? enabledLocations.join(', ') : 'none selected';
+      console.log('[Simba] Scanning ' + rows.length + ' vehicle(s) for [' + locLabel + '] drop-off'
+        + (skippedCount ? ' (skipped ' + skippedCount + ' from other/unknown branches)' : '') + ': ' + regoList);
+      showStatusBar('Checking ' + rows.length + ' vehicle(s) [' + locLabel + '] against We-Integrate...', 'checking');
       if (!rows.length) {
-        console.log('[Simba Return] No dropoff rows found.');
+        console.log('[Simba Return] No matching dropoff rows found for enabled locations: ' + locLabel);
         return;
       }
 
@@ -747,10 +958,26 @@
         showStatusBar('Scanning ' + (i + 1) + '/' + rows.length + ': ' + rego, 'checking');
         try {
           const result = await checkWeIntegrateMsg(rego);
-          if (!result.success) { results.push(null); continue; }
-          results.push({ row, data: result.data });
+          if (!result.success) {
+            showStatusBar(rego + ': ' + (result.error || 'check failed'), 'checking');
+            await sleep(1000);
+            results.push(null);
+            continue;
+          }
+          // Briefly surface the batch type (or the reason it's not ready)
+          // so it's visible that this specific vehicle was actually
+          // checked, rather than the widget jumping straight to the next.
+          const data = result.data;
+          const label = data.batchType
+            ? (data.batchType + (data.checkInToday ? (data.noKms ? ' (no KMs)' : '') : ' (not today)'))
+            : (data.reason || 'no batch found');
+          showStatusBar(rego + ': ' + label, 'checking');
+          await sleep(1000);
+          results.push({ row, data });
         } catch (e) {
           console.error('[Simba Return] Error checking ' + rego + ':', e);
+          showStatusBar(rego + ': error — ' + e.message, 'checking');
+          await sleep(1000);
           results.push(null);
         }
       }
@@ -780,18 +1007,16 @@
     function getDropoffRows() {
       const rows = [];
 
-      const vehicleColIdx = (() => {
-        const tbl = Array.from(document.querySelectorAll('table.lstReport'))
-          .find(t => t.rows.length > 5 && Array.from(t.querySelectorAll('th')).some(th => th.textContent.trim() === 'Photos'));
-        if (!tbl) return -1;
-        const ths = Array.from(tbl.querySelectorAll('th'));
-        return ths.findIndex(th => th.textContent.trim() === 'Vehicle');
-      })();
+      const vehicleColIdx = findColumnIndex(text => text === 'Vehicle');
+      // Matched loosely: "Dropoff", "Drop Off", "Drop-off", "Dropoff Location"
+      // (or "Dropoff Branch", etc.) all count, since RCM's exact header
+      // wording can vary between report configurations.
+      const dropoffColIdx = findColumnIndex(text => normalizeHeaderText(text).indexOf('dropoff') !== -1);
 
       let allRows;
       let dropoffTable = null;
       const lstTables = Array.from(document.querySelectorAll('table.lstReport'))
-        .filter(t => t.rows.length > 5);
+        .filter(t => t.rows.length > MIN_TABLE_ROWS);
       for (const tbl of lstTables) {
         const ths = Array.from(tbl.querySelectorAll('th'));
         if (ths.some(th => th.textContent.trim() === 'Photos')) {
@@ -849,6 +1074,16 @@
         const rego = extractRegoFromRow(tr, vehicleColIdx);
         if (!rego) continue;
 
+        // Determine the drop-off branch for this row from the "Dropoff"
+        // column's full text (whole-word match, e.g. "SYD" anywhere inside
+        // a multi-line address block still counts as Sydney). Falls back to
+        // scanning the whole row's text if the Dropoff column itself
+        // couldn't be located, so branch detection still works even if the
+        // report's header wording changes.
+        const dropoffCell = (dropoffColIdx >= 0 && cells[dropoffColIdx]) ? cells[dropoffColIdx] : tr;
+        const dropoffText = getCellFullText(dropoffCell);
+        const location = detectLocationCode(dropoffText);
+
         let updateUrl = null;
         if (resNo) {
           updateUrl = 'https://bookings.rentalcarmanager.com/reservations/update/booking/' + resNo + '/2';
@@ -856,7 +1091,7 @@
 
         if (rego && resNo && updateUrl) {
           if (!rows.find(r => r.resNo === resNo)) {
-            rows.push({ rego, resNo, updateUrl, photosCell, tr });
+            rows.push({ rego, resNo, updateUrl, photosCell, tr, location });
           }
         }
       }
@@ -1019,6 +1254,8 @@
       if (!statusBarEl) {
         statusBarEl = document.createElement('div');
         statusBarEl.className = 'simba-status-bar';
+        statusBarEl.title = 'Click to show/hide the Auto-Return menu';
+        statusBarEl.addEventListener('click', toggleMenu);
         document.body.appendChild(statusBarEl);
       }
       statusBarEl.textContent = `🚗 Simba Return: ${message}`;
@@ -1039,10 +1276,17 @@
       document.head.appendChild(style);
     }
 
-    // New: floating bottom-right panel with the Auto-Return toggle.
+    // New: floating bottom-right panel with the Auto-Return toggle and the
+    // branch/location filter. Collapsed by default; clicking the status
+    // widget toggles it.
+    function toggleMenu() {
+      if (!menuEl) return;
+      menuEl.classList.toggle('simba-menu-collapsed');
+    }
+
     function injectFloatingMenu() {
       const menu = document.createElement('div');
-      menu.className = 'simba-menu';
+      menu.className = 'simba-menu simba-menu-collapsed';
       menu.innerHTML = `
         <div class="simba-menu-title">🚗 Simba Return Manager</div>
         <label class="simba-menu-row">
@@ -1052,17 +1296,30 @@
             <span class="simba-slider"></span>
           </span>
         </label>
+        <div class="simba-menu-divider"></div>
+        <div class="simba-menu-subtitle">Locations (Dropoff)</div>
+        <div class="simba-menu-locations" id="simba-location-list"></div>
         <div class="simba-menu-hint" id="simba-menu-hint"></div>
       `;
       document.body.appendChild(menu);
+      menuEl = menu;
+
+      // Clicks inside the menu shouldn't bubble up to the document and
+      // accidentally trigger anything else; they also shouldn't close the
+      // menu via the status bar (which is a separate element anyway).
+      menu.addEventListener('click', (e) => e.stopPropagation());
 
       const checkbox = menu.querySelector('#simba-auto-toggle');
       const hint = menu.querySelector('#simba-menu-hint');
+      const locationList = menu.querySelector('#simba-location-list');
 
       function refreshHint() {
-        hint.textContent = checkbox.checked
+        const enabled = getEnabledLocations();
+        const locLabel = enabled.length ? enabled.join(', ') : 'none — nothing will be scanned';
+        hint.textContent = (checkbox.checked
           ? 'Ready vehicles will be auto checked-in.'
-          : 'Auto check-in is off — use the "Check In" button on each row.';
+          : 'Auto check-in is off — use the "Check In" button on each row.')
+          + ' Watching: ' + locLabel + '.';
       }
 
       checkbox.checked = isAutoReturnEnabled();
@@ -1079,10 +1336,42 @@
           refreshHint();
         });
       }
-    }
 
-    function sleep(ms) {
-      return new Promise(resolve => setTimeout(resolve, ms));
+      // Build one checkbox row per known branch. Sydney is on by default
+      // (see getEnabledLocations()); everything else starts unticked.
+      const enabledSet = new Set(getEnabledLocations());
+      const locationCheckboxes = [];
+      LOCATIONS.forEach(loc => {
+        const row = document.createElement('label');
+        row.className = 'simba-menu-row simba-menu-location-row';
+        row.innerHTML = `
+          <span>${loc.label} <span class="simba-loc-code">(${loc.code})</span></span>
+          <input type="checkbox" class="simba-loc-checkbox" data-code="${loc.code}">
+        `;
+        locationList.appendChild(row);
+
+        const cb = row.querySelector('.simba-loc-checkbox');
+        cb.checked = enabledSet.has(loc.code);
+        locationCheckboxes.push(cb);
+
+        cb.addEventListener('change', () => {
+          const current = new Set(getEnabledLocations());
+          if (cb.checked) current.add(loc.code);
+          else current.delete(loc.code);
+          setEnabledLocations(Array.from(current));
+          refreshHint();
+        });
+      });
+
+      if (typeof GM_addValueChangeListener === 'function') {
+        GM_addValueChangeListener(ENABLED_LOCATIONS_KEY, (name, oldValue, newValue) => {
+          let codes = [];
+          try { codes = Array.isArray(newValue) ? newValue : JSON.parse(newValue); } catch (e) { codes = []; }
+          const set = new Set(codes);
+          locationCheckboxes.forEach(cb => { cb.checked = set.has(cb.dataset.code); });
+          refreshHint();
+        });
+      }
     }
   }
 
