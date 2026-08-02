@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Simba Return Manager (Userscript)
 // @namespace    simba-return-manager
-// @version      1.3.0
+// @version      1.4.0
 // @description  Auto-detects returned vehicles via We-Integrate and marks them as returned in RCM. Auto-return is OFF by default for testing — use the floating toggle or the per-row "Check In" button. Only vehicles whose Dropoff branch is enabled (Sydney only, by default) are scanned/shown.
 // @match        https://bookings.rentalcarmanager.com/report/dailyactivity*
 // @match        https://bookings.rentalcarmanager.com/reservations/update/booking/*
@@ -123,7 +123,7 @@
  *  - Added: the Auto-Return panel is now collapsed by default and toggles
  *    open/closed when you click the status widget in the corner.
  * ─────────────────────────────────────────────────────────────────────────
- * v1.3.0 FIXES / ADDITIONS (this revision)
+ * v1.3.0 FIXES / ADDITIONS
  * ─────────────────────────────────────────────────────────────────────────
  *  - Fixed: there was previously no real concept of "which branch is this
  *    vehicle dropping off at" — the only location-flavoured logic was
@@ -150,6 +150,28 @@
  *    Sydney is ticked by default — rows whose Dropoff branch isn't ticked
  *    (or whose branch couldn't be determined at all) are skipped entirely,
  *    before any We-Integrate lookups are made for them.
+ * ─────────────────────────────────────────────────────────────────────────
+ * v1.4.0 FIXES / ADDITIONS (this revision)
+ * ─────────────────────────────────────────────────────────────────────────
+ *  - Added: if the We-Integrate batch's notes contain the whole word
+ *    "manual" (case-insensitive — matches "manual"/"manually" but not
+ *    something like "Emmanuel"), the row no longer gets the normal
+ *    "Check In" button at all. Instead it gets a differently-styled
+ *    "Manual Checkin requested" button that does NOT run the automated
+ *    submit flow (fillAndSubmit/submitReturnMsg) and is never auto-clicked
+ *    even if Auto-Return is switched on. Clicking it simply opens RCM's
+ *    own ordinary "manage booking" page for that reservation in a plain
+ *    popup window (window.open, not GM_openInTab's hidden background tab,
+ *    and with none of the simbaAction/simbaKms/simbaRefuel/simbaToken
+ *    automation query flags added) so a person can review the booking and
+ *    fill in / submit the check-in details by hand.
+ *    Why: the notes are the operator's signal that the photos were taken
+ *    later than the actual physical return (e.g. car was dropped off on
+ *    time but not photographed until afterwards). This script infers the
+ *    return time from "now" (see fillAndSubmit/doActualDropoff below) —
+ *    it has no way to know the real return time in that situation, so
+ *    rather than guess and submit a wrong Actual Drop-off time, it hands
+ *    the row to a human with the real booking page one click away.
  * ─────────────────────────────────────────────────────────────────────────
  */
 
@@ -239,7 +261,7 @@
     if (!batchType) return { found: false, reason: 'Could not read batch type' };
     if (batchType.toLowerCase() !== 'check in') return { found: false, reason: 'Latest batch is "' + batchType + '", not Check In', batchType };
     if (dateAdded !== todayStr) return { found: false, reason: 'Check In found but date is ' + dateAdded + ', not today', batchType };
-    if (!kms || kms === '0') return { found: true, checkInToday: true, noKms: true, reason: 'No KMs input for this batch', kms: null, needsRefuel, batchType };
+    if (!kms || kms === '0') return { found: true, checkInToday: true, noKms: true, reason: 'No KMs input for this batch', kms: null, needsRefuel, batchType, notes };
     return { found: true, checkInToday: true, noKms: false, kms, needsRefuel, notes, batchType };
   }
 
@@ -591,6 +613,16 @@
       GM_setValue(AUTO_RETURN_KEY, !!val);
     }
 
+    // Keyword that, when found in the We-Integrate batch's notes, means a
+    // human needs to check the vehicle in manually (see v1.4.0 notes at
+    // the top of the file for why). Whole-word match so it doesn't fire on
+    // an unrelated longer word.
+    const MANUAL_CHECKIN_KEYWORD_RE = /\bmanual\b/i;
+
+    function notesRequireManualCheckin(notes) {
+      return !!notes && MANUAL_CHECKIN_KEYWORD_RE.test(notes);
+    }
+
     // ── Branch/location filtering (based on the report's "Dropoff" column) ──
     //
     // Recognised branch codes, with a friendly label for the menu. This is
@@ -796,6 +828,25 @@
         line-height: 1.3;
         padding: 3px 6px;
       }
+      .simba-btn-manual {
+        background: #fff8e1;
+        color: #e65100;
+        border-color: #ffcc80;
+        cursor: pointer;
+        display: block;
+        width: 100%;
+        text-align: center;
+        margin-left: 0;
+        margin-top: 4px;
+        box-sizing: border-box;
+        font-size: 10px;
+        white-space: normal;
+        line-height: 1.3;
+      }
+      .simba-btn-manual:hover {
+        background: #ffecb3;
+        border-color: #ffb74d;
+      }
       .simba-btn-checking {
         background: #fffde7;
         color: #f57f17;
@@ -989,7 +1040,12 @@
         const { rego, resNo, updateUrl, photosCell, tr } = row;
         if (data.found && data.checkInToday) {
           readyCount++;
-          if (data.noKms) {
+          // Notes flagged as "manual" take priority over everything else —
+          // regardless of whether KMs are present — because the concern
+          // (photos taken after the real return time) applies either way.
+          if (notesRequireManualCheckin(data.notes)) {
+            injectManualCheckinNotice(photosCell, rego, updateUrl, data.notes, tr);
+          } else if (data.noKms) {
             injectErrorButton(photosCell, rego, '⚠ No KMs in We-Integrate');
           } else {
             injectReturnButton(photosCell, rego, resNo, updateUrl, data.kms, data.needsRefuel === true, data.notes || "", tr);
@@ -1163,7 +1219,7 @@
     }
 
     function injectReturnButton(photosCell, rego, resNo, updateUrl, kms, needsRefuel, notes, tr) {
-      if (photosCell.querySelector('.simba-btn-success, .simba-btn-ready, .simba-btn-error')) return;
+      if (photosCell.querySelector('.simba-btn-success, .simba-btn-ready, .simba-btn-error, .simba-btn-manual')) return;
 
       const rowEl = tr || photosCell.closest('tr');
       if (rowEl) {
@@ -1206,7 +1262,7 @@
     }
 
     function injectErrorButton(photosCell, rego, message) {
-      if (photosCell.querySelector('.simba-btn-success, .simba-btn-ready, .simba-btn-error')) return;
+      if (photosCell.querySelector('.simba-btn-success, .simba-btn-ready, .simba-btn-error, .simba-btn-manual')) return;
 
       const btn = document.createElement('button');
       btn.className = 'simba-btn simba-btn-error';
@@ -1214,6 +1270,48 @@
       btn.title = rego + ': ' + message;
       btn.disabled = true;
 
+      photosCell.appendChild(btn);
+    }
+
+    // New (v1.4.0): shown instead of the "Check In" button whenever the
+    // We-Integrate notes contain the word "manual". This is deliberately
+    // NOT the automated Check In button — it never gets auto-clicked (even
+    // with Auto-Return on) and it never runs fillAndSubmit/submitReturnMsg,
+    // since the whole point is that a human needs to enter the correct
+    // return time themselves rather than have the script stamp "now".
+    // Clicking it does nothing more than open RCM's own regular "manage
+    // booking" page in a plain popup window — the exact same updateUrl
+    // used elsewhere, with none of the simbaAction/simbaKms/simbaRefuel/
+    // simbaToken query flags added, and via window.open (a normal, visible
+    // popup) rather than GM_openInTab's hidden background tab — so the
+    // user lands on the ordinary edit screen and fills in / submits the
+    // check-in details by hand.
+    function injectManualCheckinNotice(photosCell, rego, updateUrl, notes, tr) {
+      if (photosCell.querySelector('.simba-btn-success, .simba-btn-ready, .simba-btn-error, .simba-btn-manual')) return;
+
+      const rowEl = tr || photosCell.closest('tr');
+      if (rowEl) {
+        rowEl.style.backgroundColor = '#fff3e0';
+      }
+
+      const btn = document.createElement('button');
+      btn.className = 'simba-btn simba-btn-manual';
+      btn.textContent = 'Manual Checkin requested';
+      btn.title = rego + ' — notes mention "manual": ' + (notes || '(no further note text)') + ' · Click to open the booking page and check in manually';
+
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!updateUrl) return;
+        window.open(
+          updateUrl,
+          'simbaManualCheckin_' + rego,
+          'popup=yes,width=1100,height=800,noopener,noreferrer'
+        );
+      });
+
+      const br = document.createElement('br');
+      photosCell.appendChild(br);
       photosCell.appendChild(btn);
     }
 
