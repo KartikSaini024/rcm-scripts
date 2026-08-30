@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Simba Return Manager (Userscript)
+// @name         Simba Return Manager
 // @namespace    simba-return-manager
-// @version      1.4.0
+// @version      1.4.1
 // @description  Auto-detects returned vehicles via We-Integrate and marks them as returned in RCM. Auto-return is OFF by default for testing — use the floating toggle or the per-row "Check In" button. Only vehicles whose Dropoff branch is enabled (Sydney only, by default) are scanned/shown.
 // @match        https://bookings.rentalcarmanager.com/report/dailyactivity*
 // @match        https://bookings.rentalcarmanager.com/reservations/update/booking/*
@@ -151,7 +151,7 @@
  *    (or whose branch couldn't be determined at all) are skipped entirely,
  *    before any We-Integrate lookups are made for them.
  * ─────────────────────────────────────────────────────────────────────────
- * v1.4.0 FIXES / ADDITIONS (this revision)
+ * v1.4.0 FIXES / ADDITIONS
  * ─────────────────────────────────────────────────────────────────────────
  *  - Added: if the We-Integrate batch's notes contain the whole word
  *    "manual" (case-insensitive — matches "manual"/"manually" but not
@@ -172,6 +172,20 @@
  *    it has no way to know the real return time in that situation, so
  *    rather than guess and submit a wrong Actual Drop-off time, it hands
  *    the row to a human with the real booking page one click away.
+ * ─────────────────────────────────────────────────────────────────────────
+ * v1.4.1 FIXES / ADDITIONS (this revision)
+ * ─────────────────────────────────────────────────────────────────────────
+ *  - Fixed: the "Check In" button swaps its visible label to show the
+ *    We-Integrate notes text on hover (and back to "Check In" on
+ *    mouseleave). Because the notes can be arbitrarily long, and only
+ *    `white-space: nowrap` was previously set, the button's own box had no
+ *    hard cap on its size — long notes could stretch/overflow differently
+ *    than the short "Check In" label, making the button appear to change
+ *    size depending on which text was currently shown. The button now has
+ *    a fixed `height`, plus `overflow: hidden` and `text-overflow:
+ *    ellipsis`, so swapping between "Check In" and the notes text always
+ *    renders inside the exact same box — long notes are truncated with an
+ *    ellipsis instead of resizing or overflowing the button.
  * ─────────────────────────────────────────────────────────────────────────
  */
 
@@ -790,10 +804,14 @@
         border-color: #1565c0;
         display: block;
         width: 100%;
+        height: 22px;
         text-align: center;
         margin-left: 0;
         margin-top: 4px;
         box-sizing: border-box;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
       .simba-btn-ready:hover {
         background: #0d47a1;
@@ -1235,7 +1253,11 @@
       btn.title = 'Check In today · KMs: ' + kms + (needsRefuel ? ' · Refuel fee will be added' : '') + ' · Click to mark returned';
 
       // "Check In" — this is the manual button referenced in the brief: it
-      // runs the exact same submit flow as the old auto-click did.
+      // runs the exact same submit flow as the old auto-click did. The
+      // button's box has a fixed height plus overflow/ellipsis clipping
+      // (see .simba-btn-ready above) so swapping between this label and
+      // the (potentially long) notes text on hover never changes the
+      // button's on-screen size — long notes are just truncated with "…".
       const defaultText = 'Check In';
       const hoverText = notes ? notes : 'No notes';
       btn.innerHTML = defaultText;
