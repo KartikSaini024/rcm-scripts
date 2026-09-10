@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Simba Car Hire — Pickup & Dropoff Category Totals
 // @namespace    https://github.com/kartiksaini024/rcm-scripts
-// @version      2.1.0
+// @version      2.1.1
 // @author       Kartik
 // @description  Animated summary bars above the pickup and dropoff tables, with per-category hover tooltips showing times, allocation status and turnarounds
 // @match        https://bookings.rentalcarmanager.com/report/dailyactivity*
@@ -554,21 +554,37 @@
     pending = setTimeout(init, 120);
   }
 
+  // Polls for each source table individually and attaches a MutationObserver
+  // to each as it appears, instead of stopping the whole watch as soon as any
+  // *one* table shows up. Tables can render asynchronously and in any order,
+  // so bailing out early used to leave later-loading tables (e.g. the pickup
+  // tables when Dropoff renders first) permanently unobserved — meaning that
+  // bar would never appear.
   function watch() {
     const ids = REPORTS.flatMap(r => r.sources.map(s => s.id));
+    const observed = new Set();
+
     const check = setInterval(() => {
-      const tables = ids.map(id => document.getElementById(id)).filter(Boolean);
-      if (tables.length === 0) return;
+      let foundNew = false;
 
-      clearInterval(check);
-      init();
+      ids.forEach(id => {
+        if (observed.has(id)) return;
+        const table = document.getElementById(id);
+        if (!table) return;
 
-      tables.forEach(table => {
+        observed.add(id);
+        foundNew = true;
+
         const tbody = table.querySelector('tbody');
-        if (!tbody) return;
-        new MutationObserver(scheduleInit)
-          .observe(tbody, { childList: true, subtree: true });
+        if (tbody) {
+          new MutationObserver(scheduleInit)
+            .observe(tbody, { childList: true, subtree: true });
+        }
       });
+
+      if (foundNew) scheduleInit();
+
+      if (observed.size === ids.length) clearInterval(check);
     }, 400);
   }
 
@@ -577,3 +593,4 @@
   } else {
     watch();
   }
+})();
