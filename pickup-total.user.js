@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Simba Car Hire — Pickup Category Totals
+// @name         Simba Car Hire — Pickup & Dropoff Category Totals
 // @namespace    https://github.com/kartiksaini024/rcm-scripts
-// @version      2.0.0
+// @version      2.1.0
 // @author       Kartik
-// @description  Animated summary bar with per-category hover tooltips showing pickup times and allocation status
+// @description  Animated summary bars above the pickup and dropoff tables, with per-category hover tooltips showing times, allocation status and turnarounds
 // @match        https://bookings.rentalcarmanager.com/report/dailyactivity*
 // @updateURL    https://raw.githubusercontent.com/kartiksaini024/rcm-scripts/main/pickup-total.user.js
 // @downloadURL  https://raw.githubusercontent.com/kartiksaini024/rcm-scripts/main/pickup-total.user.js
@@ -24,6 +24,7 @@
     { bg:'#F1EFE8', border:'#B4B2A9', text:'#444441', badge:'#5F5E5A' },
   ];
 
+  // Shared across both bars so a category keeps one colour on the whole page.
   const colorMap = {};
   let colorIdx = 0;
   function colorFor(cat) {
@@ -34,6 +35,40 @@
     return colorMap[cat];
   }
 
+  // ── Report definitions ─────────────────────────────────────────────────────
+
+  const REPORTS = [
+    {
+      key: 'pickup',
+      label: 'Pickups',
+      anchorId: 'UnallocatePickup',
+      dateLabel: 'Pickup Date',
+      sources: [
+        { id: 'UnallocatePickup', flag: false },
+        { id: 'Pickup',           flag: true  },
+      ],
+      pill: flag => flag
+        ? { cls: 'rcm-pill-yes', text: 'alloc'   }
+        : { cls: 'rcm-pill-no',  text: 'unalloc' },
+    },
+    {
+      key: 'dropoff',
+      label: 'Dropoffs',
+      anchorId: 'Dropoff',
+      dateLabel: 'Dropoff Date',
+      // No allocated/unallocated split here — flag comes from the Next Rental
+      // column instead, so you can see which cars are turning straight around.
+      flagColumn: 'Next Rental',
+      sources: [
+        { id: 'Dropoff', flag: false },
+      ],
+      pill: flag => flag
+        ? { cls: 'rcm-pill-turn', text: 'next out' }
+        : { cls: 'rcm-pill-free', text: 'free'     },
+      footer: { firstLabel: 'First in', lastLabel: 'Last in' },
+    },
+  ];
+
   function injectStyles() {
     if (document.getElementById('rcm-bar-style')) return;
     const s = document.createElement('style');
@@ -43,12 +78,8 @@
         from { opacity:0; transform:translateY(-7px); }
         to   { opacity:1; transform:translateY(0); }
       }
-      @keyframes rcm-popin {
-        from { opacity:0; transform:translateX(-50%) translateY(6px) scale(0.96); }
-        to   { opacity:1; transform:translateX(-50%) translateY(0)   scale(1); }
-      }
 
-      #rcm-summary-bar {
+      .rcm-summary-bar {
         display: flex;
         flex-wrap: wrap;
         align-items: center;
@@ -63,7 +94,7 @@
         animation: rcm-fadein 0.35s cubic-bezier(.22,1,.36,1) both;
       }
 
-      #rcm-summary-bar .rcm-bar-label {
+      .rcm-summary-bar .rcm-bar-label {
         font-size: 10px;
         font-weight: 700;
         letter-spacing: 0.1em;
@@ -73,7 +104,7 @@
         margin-right: 2px;
       }
 
-      #rcm-summary-bar .rcm-sep {
+      .rcm-summary-bar .rcm-sep {
         width: 1px;
         height: 18px;
         background: #e5e7eb;
@@ -82,7 +113,7 @@
         align-self: center;
       }
 
-      #rcm-summary-bar .rcm-chip {
+      .rcm-summary-bar .rcm-chip {
         display: inline-flex;
         align-items: center;
         gap: 5px;
@@ -96,19 +127,19 @@
         transition: transform 0.18s cubic-bezier(.34,1.56,.64,1),
                     box-shadow 0.18s ease;
       }
-      #rcm-summary-bar .rcm-chip:hover {
+      .rcm-summary-bar .rcm-chip:hover {
         transform: translateY(-2px);
         box-shadow: 0 4px 14px rgba(0,0,0,0.09);
         z-index: 10;
       }
 
-      #rcm-summary-bar .rcm-chip-name {
+      .rcm-summary-bar .rcm-chip-name {
         font-size: 12px;
         font-weight: 500;
         line-height: 1;
       }
 
-      #rcm-summary-bar .rcm-chip-num {
+      .rcm-summary-bar .rcm-chip-num {
         border-radius: 4px;
         padding: 1px 7px;
         font-size: 11px;
@@ -119,11 +150,11 @@
         text-align: center;
         transition: transform 0.15s ease;
       }
-      #rcm-summary-bar .rcm-chip:hover .rcm-chip-num {
+      .rcm-summary-bar .rcm-chip:hover .rcm-chip-num {
         transform: scale(1.13);
       }
 
-      #rcm-summary-bar .rcm-total {
+      .rcm-summary-bar .rcm-total {
         display: inline-flex;
         align-items: center;
         gap: 6px;
@@ -133,14 +164,14 @@
         padding: 5px 11px;
         white-space: nowrap;
       }
-      #rcm-summary-bar .rcm-total-lbl {
+      .rcm-summary-bar .rcm-total-lbl {
         font-size: 10px;
         font-weight: 700;
         letter-spacing: 0.08em;
         text-transform: uppercase;
         color: #9ca3af;
       }
-      #rcm-summary-bar .rcm-total-num {
+      .rcm-summary-bar .rcm-total-num {
         font-size: 15px;
         font-weight: 800;
         color: #1e293b;
@@ -148,7 +179,7 @@
       }
 
       /* Tooltip */
-      #rcm-summary-bar .rcm-tooltip {
+      .rcm-summary-bar .rcm-tooltip {
         position: absolute;
         bottom: calc(100% + 11px);
         left: 50%;
@@ -157,8 +188,8 @@
         color: #1e293b;
         border-radius: 10px;
         padding: 12px 14px 10px;
-        min-width: 220px;
-        max-width: 270px;
+        min-width: 230px;
+        max-width: 280px;
         pointer-events: none;
         opacity: 0;
         transition: opacity 0.16s ease,
@@ -169,7 +200,13 @@
         border: 0.5px solid #e2e2e2;
         box-shadow: 0 8px 24px rgba(0,0,0,0.10);
       }
-      #rcm-summary-bar .rcm-tooltip::after {
+      /* Bars sit above their table, so tooltips on the second bar have room
+         below rather than above. */
+      .rcm-summary-bar .rcm-chip.rcm-tip-below .rcm-tooltip {
+        bottom: auto;
+        top: calc(100% + 11px);
+      }
+      .rcm-summary-bar .rcm-tooltip::after {
         content: '';
         position: absolute;
         top: 100%;
@@ -178,7 +215,7 @@
         border: 6px solid transparent;
         border-top-color: #e2e2e2;
       }
-      #rcm-summary-bar .rcm-tooltip::before {
+      .rcm-summary-bar .rcm-tooltip::before {
         content: '';
         position: absolute;
         top: calc(100% - 1px);
@@ -188,12 +225,24 @@
         border-top-color: #ffffff;
         z-index: 1;
       }
-      #rcm-summary-bar .rcm-chip:hover .rcm-tooltip {
+      .rcm-summary-bar .rcm-tip-below .rcm-tooltip::after {
+        top: auto;
+        bottom: 100%;
+        border-top-color: transparent;
+        border-bottom-color: #e2e2e2;
+      }
+      .rcm-summary-bar .rcm-tip-below .rcm-tooltip::before {
+        top: auto;
+        bottom: calc(100% - 1px);
+        border-top-color: transparent;
+        border-bottom-color: #ffffff;
+      }
+      .rcm-summary-bar .rcm-chip:hover .rcm-tooltip {
         opacity: 1;
         transform: translateX(-50%) translateY(0) scale(1);
       }
 
-      #rcm-summary-bar .rcm-tt-header {
+      .rcm-summary-bar .rcm-tt-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -201,12 +250,12 @@
         padding-bottom: 8px;
         border-bottom: 0.5px solid #e5e7eb;
       }
-      #rcm-summary-bar .rcm-tt-cat {
+      .rcm-summary-bar .rcm-tt-cat {
         font-weight: 700;
         font-size: 13px;
         color: #0f172a;
       }
-      #rcm-summary-bar .rcm-tt-badge {
+      .rcm-summary-bar .rcm-tt-badge {
         border-radius: 4px;
         padding: 1px 8px;
         font-size: 11px;
@@ -215,7 +264,7 @@
         flex-shrink: 0;
       }
 
-      #rcm-summary-bar .rcm-tt-section-lbl {
+      .rcm-summary-bar .rcm-tt-section-lbl {
         font-size: 10px;
         font-weight: 700;
         letter-spacing: 0.08em;
@@ -224,16 +273,16 @@
         margin-bottom: 5px;
       }
 
-      #rcm-summary-bar .rcm-tt-row {
+      .rcm-summary-bar .rcm-tt-row {
         display: flex;
         align-items: center;
         justify-content: space-between;
         padding: 3px 0;
         border-bottom: 0.5px solid #f1f5f9;
       }
-      #rcm-summary-bar .rcm-tt-row:last-child { border-bottom: none; }
+      .rcm-summary-bar .rcm-tt-row:last-child { border-bottom: none; }
 
-      #rcm-summary-bar .rcm-tt-name {
+      .rcm-summary-bar .rcm-tt-name {
         color: #64748b;
         font-size: 12px;
         flex: 1;
@@ -243,20 +292,20 @@
         text-overflow: ellipsis;
         max-width: 130px;
       }
-      #rcm-summary-bar .rcm-tt-right {
+      .rcm-summary-bar .rcm-tt-right {
         display: flex;
         align-items: center;
         gap: 5px;
         flex-shrink: 0;
       }
-      #rcm-summary-bar .rcm-tt-time {
+      .rcm-summary-bar .rcm-tt-time {
         color: #0f172a;
         font-size: 12px;
         font-weight: 600;
         white-space: nowrap;
         font-variant-numeric: tabular-nums;
       }
-      #rcm-summary-bar .rcm-tt-alloc {
+      .rcm-summary-bar .rcm-tt-pill {
         font-size: 9px;
         font-weight: 700;
         padding: 1px 5px;
@@ -264,16 +313,12 @@
         letter-spacing: 0.03em;
         text-transform: uppercase;
       }
-      #rcm-summary-bar .rcm-alloc-yes {
-        background: #dcfce7;
-        color: #166534;
-      }
-      #rcm-summary-bar .rcm-alloc-no {
-        background: #fee2e2;
-        color: #991b1b;
-      }
+      .rcm-summary-bar .rcm-pill-yes  { background:#dcfce7; color:#166534; }
+      .rcm-summary-bar .rcm-pill-no   { background:#fee2e2; color:#991b1b; }
+      .rcm-summary-bar .rcm-pill-turn { background:#fef3c7; color:#92400e; }
+      .rcm-summary-bar .rcm-pill-free { background:#f1f5f9; color:#64748b; }
 
-      #rcm-summary-bar .rcm-tt-footer {
+      .rcm-summary-bar .rcm-tt-footer {
         margin-top: 8px;
         padding-top: 7px;
         border-top: 0.5px solid #e5e7eb;
@@ -282,12 +327,12 @@
         font-size: 11px;
         color: #9ca3af;
       }
-      #rcm-summary-bar .rcm-tt-footer-item {
+      .rcm-summary-bar .rcm-tt-footer-item {
         display: flex;
         align-items: center;
         gap: 4px;
       }
-      #rcm-summary-bar .rcm-tt-footer-val {
+      .rcm-summary-bar .rcm-tt-footer-val {
         color: #374151;
         font-weight: 600;
         font-variant-numeric: tabular-nums;
@@ -298,12 +343,23 @@
 
   // ── Data extraction ────────────────────────────────────────────────────────
 
+  function headerCells(table) {
+    return Array.from(table.querySelectorAll('thead th'));
+  }
+
   function getColIndex(table, label) {
-    let idx = -1;
-    table.querySelectorAll('thead th').forEach((th, i) => {
-      if (th.textContent.trim() === label) idx = i;
-    });
-    return idx;
+    return headerCells(table).findIndex(th => th.textContent.trim() === label);
+  }
+
+  // Both tables carry two "Time" columns (one after Pickup Date, one after
+  // Dropoff Date), so anchor to the date column and take the Time after it.
+  function getTimeColIndex(table, dateLabel) {
+    const ths     = headerCells(table);
+    const dateIdx = ths.findIndex(th => th.textContent.trim() === dateLabel);
+    for (let i = dateIdx + 1; i < ths.length; i++) {
+      if (ths[i].textContent.trim() === 'Time') return i;
+    }
+    return ths.findIndex(th => th.textContent.trim() === 'Time');
   }
 
   function firstTextOf(cell) {
@@ -313,43 +369,51 @@
     return node ? node.textContent.trim() : '';
   }
 
-  // Returns { [category]: [ { customer, time, allocated } ] }
-  function getPickupData() {
+  function cellText(cells, idx) {
+    return idx >= 0 && cells[idx] ? cells[idx].textContent.trim() : '';
+  }
+
+  // Returns { [category]: [ { customer, time, flag } ] }
+  function getData(report) {
     const data = {};
 
-    const tables = [
-      { id: 'UnallocatePickup', allocated: false },
-      { id: 'Pickup',           allocated: true  },
-    ];
-
-    tables.forEach(({ id, allocated }) => {
+    report.sources.forEach(({ id, flag }) => {
       const table = document.getElementById(id);
       if (!table) return;
 
       const catIdx      = getColIndex(table, 'Category');
-      const timeIdx     = getColIndex(table, 'Time');
+      const timeIdx     = getTimeColIndex(table, report.dateLabel);
       const customerIdx = getColIndex(table, 'Customer');
       const statusIdx   = getColIndex(table, 'Status');
+      const flagIdx     = report.flagColumn ? getColIndex(table, report.flagColumn) : -1;
       if (catIdx < 0) return;
 
       table.querySelectorAll('tbody tr').forEach(row => {
+        // Note rows are rendered inline with a colspan and no real data.
+        if (row.classList.contains('noexport')) return;
+
         const cells = row.querySelectorAll('td');
         if (cells.length < 15) return;
+        if (row.querySelector('td[colspan]')) return;
 
-        if (statusIdx >= 0 && cells[statusIdx]) {
-          if (cells[statusIdx].textContent.trim().toLowerCase().includes('maintenance')) return;
-        }
+        if (statusIdx >= 0 && cellText(cells, statusIdx).toLowerCase().includes('maintenance')) return;
 
-        const cat = catIdx >= 0 && cells[catIdx] ? firstTextOf(cells[catIdx]) : '';
+        const cat = cells[catIdx] ? firstTextOf(cells[catIdx]) : '';
         if (!cat) return;
 
-        const time     = timeIdx >= 0 && cells[timeIdx]     ? cells[timeIdx].textContent.trim()     : '';
+        const time     = cellText(cells, timeIdx);
         const customer = customerIdx >= 0 && cells[customerIdx]
-          ? firstTextOf(cells[customerIdx]) || cells[customerIdx].textContent.trim()
+          ? firstTextOf(cells[customerIdx]) || cellText(cells, customerIdx)
           : '';
 
+        const rowFlag = flagIdx >= 0 ? cellText(cells, flagIdx) !== '' : flag;
+
         if (!data[cat]) data[cat] = [];
-        data[cat].push({ customer: customer.replace(/\s+/g, ' ').trim(), time, allocated });
+        data[cat].push({
+          customer: customer.replace(/\s+/g, ' ').trim(),
+          time,
+          flag: rowFlag,
+        });
       });
     });
 
@@ -367,10 +431,9 @@
 
   // ── Tooltip builder ────────────────────────────────────────────────────────
 
-  function buildTooltip(cat, entries, c) {
+  function buildTooltip(report, cat, entries, c) {
     const tip = el('div', 'rcm-tooltip');
 
-    // Header
     const hdr = el('div', 'rcm-tt-header');
     hdr.appendChild(el('span', 'rcm-tt-cat', cat));
     const badge = el('span', 'rcm-tt-badge', entries.length);
@@ -378,42 +441,38 @@
     hdr.appendChild(badge);
     tip.appendChild(hdr);
 
-    // Section label
-    tip.appendChild(el('div', 'rcm-tt-section-lbl', 'Pickup times'));
+    tip.appendChild(el('div', 'rcm-tt-section-lbl',
+      report.key === 'dropoff' ? 'Dropoff times' : 'Pickup times'));
 
-    // Sort by time
     const sorted = [...entries].sort((a, b) => a.time.localeCompare(b.time));
 
-    sorted.forEach(({ customer, time, allocated }) => {
+    sorted.forEach(({ customer, time, flag }) => {
       const row = el('div', 'rcm-tt-row');
-
-      const name = el('span', 'rcm-tt-name', customer || '—');
-      row.appendChild(name);
+      row.appendChild(el('span', 'rcm-tt-name', customer || '—'));
 
       const right = el('span', 'rcm-tt-right');
       right.appendChild(el('span', 'rcm-tt-time', time || '—'));
 
-      const pill = el('span', allocated ? 'rcm-tt-alloc rcm-alloc-yes' : 'rcm-tt-alloc rcm-alloc-no',
-                      allocated ? 'alloc' : 'unalloc');
-      right.appendChild(pill);
+      const p = report.pill(flag);
+      right.appendChild(el('span', `rcm-tt-pill ${p.cls}`, p.text));
       row.appendChild(right);
       tip.appendChild(row);
     });
 
-    // Footer — earliest / latest
     const times = sorted.map(e => e.time).filter(Boolean);
     if (times.length > 0) {
+      const labels = report.footer || { firstLabel: 'Earliest', lastLabel: 'Latest' };
       const footer = el('div', 'rcm-tt-footer');
 
-      const earliest = el('span', 'rcm-tt-footer-item');
-      earliest.appendChild(document.createTextNode('Earliest\u00a0'));
-      earliest.appendChild(el('span', 'rcm-tt-footer-val', times[0]));
-      footer.appendChild(earliest);
+      const first = el('span', 'rcm-tt-footer-item');
+      first.appendChild(document.createTextNode(labels.firstLabel + '\u00a0'));
+      first.appendChild(el('span', 'rcm-tt-footer-val', times[0]));
+      footer.appendChild(first);
 
-      const latest = el('span', 'rcm-tt-footer-item');
-      latest.appendChild(document.createTextNode('Latest\u00a0'));
-      latest.appendChild(el('span', 'rcm-tt-footer-val', times[times.length - 1]));
-      footer.appendChild(latest);
+      const last = el('span', 'rcm-tt-footer-item');
+      last.appendChild(document.createTextNode(labels.lastLabel + '\u00a0'));
+      last.appendChild(el('span', 'rcm-tt-footer-val', times[times.length - 1]));
+      footer.appendChild(last);
 
       tip.appendChild(footer);
     }
@@ -423,14 +482,14 @@
 
   // ── Bar builder ────────────────────────────────────────────────────────────
 
-  function buildSummaryBar(data) {
+  function buildSummaryBar(report, data) {
     const sorted = Object.entries(data).sort((a, b) => b[1].length - a[1].length);
     const total  = sorted.reduce((s, [, v]) => s + v.length, 0);
 
-    const bar = document.createElement('div');
-    bar.id = 'rcm-summary-bar';
+    const bar = el('div', 'rcm-summary-bar');
+    bar.id = `rcm-summary-bar-${report.key}`;
 
-    bar.appendChild(el('span', 'rcm-bar-label', 'Pickups'));
+    bar.appendChild(el('span', 'rcm-bar-label', report.label));
     bar.appendChild(el('span', 'rcm-sep'));
 
     sorted.forEach(([cat, entries]) => {
@@ -447,7 +506,13 @@
 
       chip.appendChild(name);
       chip.appendChild(num);
-      chip.appendChild(buildTooltip(cat, entries, c));
+      chip.appendChild(buildTooltip(report, cat, entries, c));
+
+      // Flip the tooltip downwards if the chip sits near the top of the page.
+      chip.addEventListener('mouseenter', () => {
+        chip.classList.toggle('rcm-tip-below', chip.getBoundingClientRect().top < 260);
+      });
+
       bar.appendChild(chip);
     });
 
@@ -464,39 +529,51 @@
 
   // ── Inject ─────────────────────────────────────────────────────────────────
 
-  function injectSummaryBar(data) {
-    const old = document.getElementById('rcm-summary-bar');
+  function injectSummaryBar(report) {
+    const old = document.getElementById(`rcm-summary-bar-${report.key}`);
     if (old) old.remove();
-    const table   = document.getElementById('UnallocatePickup');
+
+    const table = document.getElementById(report.anchorId);
     if (!table) return;
-    const wrapper = document.getElementById('UnallocatePickup_wrapper') || table;
-    wrapper.parentNode.insertBefore(buildSummaryBar(data), wrapper);
+
+    const data = getData(report);
+    if (Object.keys(data).length === 0) return;
+
+    const wrapper = document.getElementById(`${report.anchorId}_wrapper`) || table;
+    wrapper.parentNode.insertBefore(buildSummaryBar(report, data), wrapper);
   }
 
   function init() {
     injectStyles();
-    injectSummaryBar(getPickupData());
+    REPORTS.forEach(injectSummaryBar);
   }
 
-  function waitForTables() {
+  let pending;
+  function scheduleInit() {
+    clearTimeout(pending);
+    pending = setTimeout(init, 120);
+  }
+
+  function watch() {
+    const ids = REPORTS.flatMap(r => r.sources.map(s => s.id));
     const check = setInterval(() => {
-      const t1 = document.getElementById('UnallocatePickup');
-      const t2 = document.getElementById('Pickup');
-      if (t1 || t2) {
-        clearInterval(check);
-        init();
-        [t1, t2].forEach(table => {
-          if (!table) return;
-          new MutationObserver(() => init())
-            .observe(table.querySelector('tbody'), { childList: true, subtree: true });
-        });
-      }
+      const tables = ids.map(id => document.getElementById(id)).filter(Boolean);
+      if (tables.length === 0) return;
+
+      clearInterval(check);
+      init();
+
+      tables.forEach(table => {
+        const tbody = table.querySelector('tbody');
+        if (!tbody) return;
+        new MutationObserver(scheduleInit)
+          .observe(tbody, { childList: true, subtree: true });
+      });
     }, 400);
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', waitForTables);
+    document.addEventListener('DOMContentLoaded', watch);
   } else {
-    waitForTables();
+    watch();
   }
-})();
