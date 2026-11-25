@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Simba License Scanner
 // @namespace    https://github.com/kartiksaini024/rcm-scripts
-// @version      2.0.0
+// @version      2.0.1
 // @description  Scan driver's license and auto-fill RCM booking form
 // @author       Kartik
 // @match        https://bookings.rentalcarmanager.com/reservations/update/booking/*
