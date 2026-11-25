@@ -27,8 +27,8 @@
   // ============================================================
   // Config (was config.js + constants in background.js)
   // ============================================================
-  const HF_API_KEY = "hf";
-  const HF_MODEL   = "Qwen/Qwen3-VL-30B-A3B-Instruct:novita";
+  const HF_API_KEY = "hf"; // add your huggingface token here
+  const HF_MODEL   = "zai-org/GLM-5.3-Flash:cheapest";
 
   const CLOUD_NAME    = "rentalcarmanager";
   const UPLOAD_PRESET = "prod-upload-preset-20250702";
